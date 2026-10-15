@@ -1,0 +1,13 @@
+{
+  "name": "My website icon extraction",
+  "entryUrl": "https://example.com/app/",
+  "timezone": "UTC",
+  "scope": {
+    "origin": "https://example.com",
+    "pathPrefix": "/app/"
+  },
+  "limitations": [
+    "Replace with observed access, loading and unvisited-state limitations for this run."
+  ],
+  "notes": []
+}

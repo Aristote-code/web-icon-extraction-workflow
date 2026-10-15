@@ -1,51 +1,41 @@
-# Capture and verification procedure
+# Universal extraction procedure
 
-## 1. Open the authorized session
+## Configure the target
 
-Use Codex browser control to open the supplied application URL in the user's selected browser. Follow the browser tool's initialization instructions, name the session, and read the pageAssets capability documentation. Confirm the actual application loaded and record login, permissions or onboarding boundaries. Use the documented APIs rather than reading browser profiles or cookies from disk.
+Create `run.json` from `config/run.example.json`. Set a descriptive name, entry URL, scope origin and path prefix. Optionally supply an ISO date and timezone; omitted dates use the current UTC date. Record limitations and notes based on this run, not a previous application. `--config FILE` overrides the input directory's metadata.
 
-## 2. Establish a route inventory
+Scope controls the report's discovered-route inventory; the operator must also stay within that authorized boundary during browser navigation. Asset CDN URLs can differ from page origins and are retained when observed through the authorized page.
 
-Read same-workspace links from the current rendered page. Visit navigation sections, spaces, folders, lists and existing content detail pages. Resolve routes through observed links; do not guess private object IDs. Record final URLs after redirects. Keep aliases distinct from pages that actually failed. Do not interpret an empty page, partial shell or a navigation timeout as proof of full page coverage.
+## Discover routes and states
 
-For the recorded ClickUp run, the inventory included Inbox tabs, Planner, AI, Teams, Docs, Dashboards, Whiteboards, Forms, Clips, Goals, Timesheets, assigned comments, skills, artifacts, meetings, My Tasks, All Tasks, Product Design, Team Space, Sprints and Projects, list/board/calendar/gantt/table/timeline/workload views, tasks, documents and App Center.
+Open the supplied URL through the selected browser's documented API. Confirm authentication and the actual application state. Read observed links and navigation labels. Visit accessible subpages and existing content; do not guess private object IDs. Record final URLs after redirects and distinguish routing aliases from failures.
 
-## 3. Capture meaningful states
+Inspect menus, tabs, existing view types, empty states and accessible icon/pictogram catalogs. Loading shells need an explicit observation and a later loaded capture where possible. Do not create content, install integrations, submit forms or change settings simply to expose more assets. Log boundaries where access or configuration would be required.
 
-Load `workflow/capture.js` into the initialized cua_repl environment. Bind `tab` using the documented API, then create a capture function with an absolute local output path:
+There is no universal finite inventory of every interactive state. Capture counts demonstrate recorded coverage; they do not by themselves prove exhaustive coverage.
 
-```js
-let capture = await createIconCapture(tab, captureRoot);
-nodeRepl.write(await capture('Inbox — Primary — loaded'));
-```
+## Capture assets
 
-Capture after the application has visibly loaded, after opening relevant menus, and after scrolling a lazy-loaded asset picker. The helper reads SVG markup, sprite symbols, use references and page links, bundles currently observed images, and saves a self-contained input directory. It only captures the current page state; navigation and coverage judgment remain explicit.
+Read the browser tool's initialization and pageAssets documentation. Load `workflow/capture.js` into the initialized cua_repl session. Use `createIconCapture(tab, captureRoot, options)`, with optional `options.run` metadata and an observed `options.pictogramSelector` matching SVGs inside an asset picker.
 
-A page can mount many shared symbols without displaying all of them. Preserve that distinction in provenance. Inspect `use` references and the downloaded sprite resource; when an original sprite is successfully captured, split all its symbols even if individual screen use is unknown. Do not infer that a failed request means an asset is unavailable if a later capture downloaded the same resource.
+The returned `capture(label, observation)` reads the current document, open shadow roots and accessible same-origin frames. `observation.status` and `observation.notes` describe what was actually verified. Without observations, page completeness remains unknown. Cross-origin or inaccessible frames are counted in capture metadata; closed shadow roots are not inspectable by this helper.
 
-For picker coverage, record successive item counts and scroll positions until both the bottom position and total count stabilize. In the ClickUp run, 12 scroll positions exposed 608 entries, reduced to 603 unique normalized pictograms. No icon was selected.
+The helper stores original image downloads and SVG/route snapshots with portable file paths. It does not save authentication storage or the full network inventory. Original sprite maps must be successfully downloaded before their external references can be reconstructed. CSS images depend on the pageAssets inventory; fonts and canvas drawings need separate analysis. A mounted definition proves availability, not visible use.
 
-Do not create content, install integrations, change configuration, send messages or delete data merely to expose more icons. Record these limits instead. Opening documents may affect normal last-viewed history.
+For lazy-loaded pickers, capture successive scroll states. Record entry counts and scroll positions until both stabilize at the bottom. Do not assume a particular class name, count or icon naming scheme. Optional selectors classify captured pictograms without changing the application's UI.
 
-## 4. Package and deduplicate
+## Process and deliver
 
-Run `scripts/package_assets.py --input RUN_DIRECTORY --output BUILD_DIRECTORY`. Input captures must match the helper's schema; paths to originals can be relative to the input directory. The packager also accepts the compressed case-study inputs.
+Run `python3 scripts/run.py --input RUN --output BUILD`. It packages SVGs, exports the report and gallery, verifies hashes and creates a ZIP next to BUILD. Add `--render` only after installing the optional rendering dependencies and native Cairo library.
 
-The packager retains original image bytes, raw inline/symbol markup, and normalized standalone SVG exports. Referenced definitions found in captured SVGs are copied into exported symbols. Deduplication uses SHA-256 of normalized XML, not visual similarity. It strips framework attributes and presentation classes; CSS variable fallbacks are used when available. Fixed colors and currentColor remain. The viewBox defaults to 24×24 only when none was present; review such exports against the original markup.
+The exporter splits all symbols in downloaded sprites, copies available definitions, resolves local use instances and external use instances backed by downloaded files, and normalizes standalone original SVGs. Downloaded source bytes and raw markup remain available. It strips framework/presentation attributes; fixed colors and currentColor remain. ViewBox inference and external dependencies are flagged in the manifest. Missing local definitions go to `incomplete-svg/`.
 
-For a new run, update run metadata in the packaging script and create a new coverage assessment. Its gallery/header defaults are from the ClickUp case study. Never copy the recorded finalizer's route coverage claims into a new report.
+Deduplication uses normalized SVG hashes with deterministic definition order, rather than visual similarity. Visually equivalent but structurally different paths may remain. External resources are not fetched by rendering checks. XML parsing, source availability, renderability and browser fidelity are separate evidence categories.
 
-## 5. Verify the evidence boundary
+Review the resulting gallery and validation log, especially missing paints or clipping, inferred dimensions, CSS-dependent SVGs, transparent results and renderer errors. Without optional rendering, the report explicitly records that rendering was not requested. Reports never claim that a visual sample was inspected automatically.
 
-Check XML parsing, hash integrity, definition closure, renderability and a visual sample. Flag transparent results, unsupported SVG/CSS features and incomplete definitions instead of silently treating them as usable icons. CairoSVG can differ from browser rendering. Retained raw markup and the original sprite are the source of truth for comparison.
+Report observed loading/authentication/permission limits, discovered unvisited links, unavailable assets and unexplored UI states. A failed download that later succeeded is distinguished from an unrecovered failure. Preserve category overlap and avoid presenting mounted definition counts as visible icon counts.
 
-Report separately:
+## Keep runs separate
 
-- Original downloaded SVGs and sprite contents.
-- Geometry captured from the rendered DOM or picker.
-- Verified visible usage versus definitions merely present in a resource.
-- Loading shells, empty states, disabled controls and navigation failures.
-- Discovered but unvisited routes, including aliases.
-- Unexplored creation flows, permission gates, themes and responsive variants.
-
-Save a downloadable ZIP, manifest with provenance and hashes, an asset gallery, coverage report and validation log. Do not claim complete application coverage unless the route and state inventory actually establishes it.
+Use a new input/output directory for each target or session. Authenticated data may contain private URLs or titles. Keep it private and exclude cookies, profiles and tokens. The optional `examples/clickup/` directory preserves one historical case; its route names and findings are not shared defaults. Third-party asset ownership and reuse rights remain with their owners.

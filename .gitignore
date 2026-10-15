@@ -11,3 +11,4 @@ profiles/
 .auth/
 storage-state*.json
 playwright/.auth/
+runs/

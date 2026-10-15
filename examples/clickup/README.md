@@ -1,3 +1,7 @@
+# ClickUp historical case study
+
+This optional example records the original extraction. For the universal workflow, start at the [repository README](../../README.md). The archived ZIP preserves the original exports. The current generic exporter also resolves use instances and standalone original SVGs, so rebuilding with it produces a larger inventory.
+
 # Bulk icon & pictogram extraction workflow
 
 A browser-assisted workflow for collecting original SVGs, sprite symbols and inline pictograms from authenticated web applications, with deduplication, provenance and explicit coverage limits.
@@ -22,36 +26,14 @@ Source categories overlap. Counts include SVG geometry exports and auxiliary gra
 
 ![Preview of extracted assets](results/clickup-preview.png)
 
-## Reproduce the recorded extraction outputs
+## Rebuild using the universal pipeline
 
-Python 3.9+ is required for packaging. Rendering additionally requires CairoSVG, Pillow and the native Cairo library (for example `brew install cairo` on macOS, or your Linux distribution's Cairo package).
+From the repository root:
 
 ```sh
-python3 -m venv .venv
-. .venv/bin/activate
-python -m pip install -r requirements.txt
-python scripts/package_assets.py --input data/clickup --output build/clickup-assets
-python scripts/finalize_clickup_case_study.py --input data/clickup --output build/clickup-assets
-python scripts/verify_package.py build/clickup-assets
-python -m unittest discover -s tests
+python3 scripts/run.py --input examples/clickup/data --output build/clickup-example
 ```
 
-The packaging command normalizes captures and exports symbols. The finalizer performs rendering checks, separates incomplete SVGs, generates the ClickUp coverage report and creates `build/clickup-icons-and-pictograms.zip`. Run packaging before finalization on every rebuild. The case-study finalizer includes observations from this recorded run; **do not use its narrative as evidence for a new run**. See [the workflow](docs/WORKFLOW.md) to collect and assess a new application.
+The source captures identify picker SVGs and record loading observations explicitly. Run metadata is stored in `data/run.json`. `finalize_recorded_run.py` is retained only as the historical report-generation script; the supported report generator is `scripts/finalize_run.py` at the repository root.
 
-The repository sorts reconstructed definitions deterministically. Rebuilt files can have different byte hashes from the archived original run when only definition order changed; the regression check verifies stable hashes across Python hash seeds.
-
-## Repository contents
-
-- `workflow/capture.js`: reusable current-state capture helper for Codex browser control.
-- `scripts/package_assets.py`: local SVG reconstruction, normalization, deduplication and provenance.
-- `scripts/finalize_clickup_case_study.py`: recorded-run reporting, rendering checks and ZIP generation.
-- `scripts/verify_package.py`: file integrity and inventory validation.
-- `data/clickup/`: compressed SVG/route captures and original image files, with portable relative paths. Full accessibility transcripts and browser sessions are excluded.
-- `results/`: verified downloadable package and preview from the original run.
-- `docs/WORKFLOW.md`: discovery, capture, coverage and review procedure.
-
-## Scope and handling
-
-The original run used an already authenticated session. It inspected navigation, menus, view types, tasks, documents, App Center and all lazily loaded entries in the icon picker without saving changes. It did not exhaust every accessible route, feature gate, menu, theme or creation flow. Mounted sprite definitions demonstrate availability, not visible use on a particular screen.
-
-Capture files and manifests contain workspace URLs and some page/link titles. Keep authenticated runs private and review files before sharing. Browser profiles, cookies and access tokens do not belong in this repository. Extracted ClickUp and integration assets remain subject to their owners' rights; this repository grants no reuse license for them.
+Original results preserve the extraction limits, incomplete SVGs and renderer observations from the recorded run. Their asset counts differ from new exports that resolve SVG use instances and standalone originals.

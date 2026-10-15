@@ -26,5 +26,5 @@ for asset in manifest['assets']:
         assert (root / asset['raw']).is_file(), asset['raw']
 coverage = json.loads((root / 'coverage.json').read_text())
 assert all(a['sources'] for a in manifest['assets'])
-assert all(c['url'].startswith('https://') for c in coverage)
+assert all(c['url'].startswith(('https://', 'http://')) for c in coverage)
 print(f"Verified {len(manifest['assets'])} SVG exports, {len(manifest['originalFiles'])} originals, {len(coverage)} captured states.")

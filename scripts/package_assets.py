@@ -1,12 +1,19 @@
-import pathlib,json,hashlib,re,copy,collections,csv,html,zipfile,shutil,gzip,argparse
+import pathlib,json,hashlib,re,copy,collections,csv,html,zipfile,shutil,gzip,argparse,datetime
+from urllib.parse import urlparse,urljoin,urldefrag
 import xml.etree.ElementTree as E
 parser=argparse.ArgumentParser(description='Normalize and deduplicate browser SVG captures')
 parser.add_argument('--input',type=pathlib.Path,required=True)
 parser.add_argument('--output',type=pathlib.Path,required=True)
+parser.add_argument('--config',type=pathlib.Path,help='Run metadata JSON; defaults to INPUT/run.json')
 args=parser.parse_args()
 DATA=args.input.resolve();OUT=args.output.resolve()
+config_path=args.config or DATA/'run.json'
+config=json.loads(config_path.read_text()) if config_path.exists() else {}
+run_name=config.get('name','Web asset extraction')
+run_date=config.get('date',datetime.datetime.now(datetime.timezone.utc).date().isoformat())
+run_timezone=config.get('timezone','UTC')
 if OUT==DATA or DATA.is_relative_to(OUT):raise SystemExit('Output must not contain input data')
-for d in ['svg','incomplete-svg','originals','raw-symbols','raw-inline']:
+for d in ['svg','incomplete-svg','originals','raw-symbols','raw-inline','evidence']:
     if (OUT/d).exists():shutil.rmtree(OUT/d)
 for d in ['svg','originals','raw-symbols','raw-inline','evidence']: (OUT/d).mkdir(parents=True,exist_ok=True)
 NS='http://www.w3.org/2000/svg'; XL='http://www.w3.org/1999/xlink'
@@ -46,8 +53,14 @@ def standalone(e,index):
     e=copy.deepcopy(e)
     if local(e.tag)=='symbol':
         e.tag='{'+NS+'}svg';e.attrib.pop('id',None)
+    if not e.get('viewBox'):
+        dimensions=[e.get('width',''),e.get('height','')]
+        first_use=next((n for n in e.iter() if local(n.tag)=='use'),None)
+        target=index.get((first_use.get('href') or first_use.get('{'+XL+'}href','')).lstrip('#')) if first_use is not None else None
+        if target is not None and target.get('viewBox'):e.set('viewBox',target.get('viewBox'))
+        elif all(re.fullmatch(r'[0-9]+(?:\.[0-9]+)?(?:px)?',d) for d in dimensions):e.set('viewBox','0 0 '+' '.join(d.removesuffix('px') if hasattr(d,'removesuffix') else d for d in dimensions))
+        else:e.set('viewBox','0 0 24 24');e.set('data-inferred-viewbox','true')
     e.attrib.pop('width',None);e.attrib.pop('height',None)
-    if not e.get('viewBox'):e.set('viewBox','0 0 24 24')
     internal={n.get('id') for n in e.iter() if n.get('id')}; needed=refs(e)-internal; added=set(); defs=E.Element('{'+NS+'}defs')
     while needed:
         id=min(needed);needed.remove(id)
@@ -57,6 +70,7 @@ def standalone(e,index):
     if len(defs):e.insert(0,defs)
     return clean(e)
 def add(e,name,kind,provenance,index,raw=None):
+    inferred=not bool(e.get('viewBox'))
     e=standalone(e,index)
     if not any(local(n.tag) in ['path','circle','rect','polygon','ellipse','line','polyline','image','text','use'] for n in e.iter()):return
     unresolved=sorted(refs(e)-{n.get('id') for n in e.iter() if n.get('id')})
@@ -67,10 +81,18 @@ def add(e,name,kind,provenance,index,raw=None):
         rawfile=None
         if raw:
             rawfile=('raw-symbols/' if kind.endswith('symbol') else 'raw-inline/')+h+'.xml';(OUT/rawfile).write_text(raw)
-        assets[h]={'sha256':h,'file':file,'name':name,'kinds':[],'sources':[],'raw':rawfile,'unresolvedReferences':unresolved,'verification':'extracted from browser DOM or downloaded sprite; XML parsed; local reference closure checked'}
+        assets[h]={'sha256':h,'file':file,'name':name,'kinds':[],'sources':[],'raw':rawfile,'unresolvedReferences':unresolved,'viewBoxInferred':inferred,'externalReferences':[v for n in e.iter() for k,v in n.attrib.items() if (local(k)=='href' and not v.startswith('#')) or ('url(' in v and 'url(#' not in v)],'verification':'extracted from browser DOM or downloaded sprite; XML parsed; local reference closure checked'}
     a=assets[h]
     if kind not in a['kinds']:a['kinds'].append(kind)
     if provenance not in a['sources']:a['sources'].append(provenance)
+external_documents={}
+for c in captures:
+    for a in c.get('bundle',{}).get('assets',[]):
+        if a.get('kind')!='image' or a.get('contentType','').split(';')[0]!='image/svg+xml':continue
+        p=pathlib.Path(a['path']);p=p if p.is_absolute() else DATA/p
+        try:root=parse(p.read_text())
+        except Exception:continue
+        external_documents[urldefrag(a['url'])[0]]={n.get('id'):n for n in root.iter() if n.get('id')}
 for i,c in enumerate(captures):
     provenance={'pageUrl':c['dom']['url'],'state':c['label'],'capture':i}
     for a in c['bundle']['assets']:
@@ -102,23 +124,32 @@ for i,c in enumerate(captures):
         try:
             e=parse(s)
             if any(local(n.tag)=='symbol' for n in e.iter()):continue
-            if any(local(n.tag)=='use' for n in e.iter()):continue
-            kind='picker-pictogram' if 'custom-icon' in s else 'inline-svg'
+            local_index=dict(index)
+            for n in e.iter():
+                for attr in ('href','{'+XL+'}href'):
+                    href=n.get(attr,'')
+                    if local(n.tag)=='use' and href and not href.startswith('#'):
+                        resource,fragment=urldefrag(urljoin(c['dom']['url'],href))
+                        doc=external_documents.get(resource,{})
+                        if fragment in doc:
+                            local_index.update(doc);n.set(attr,'#'+fragment)
+            kind='picker-pictogram' if s in c['dom'].get('pictogramSvgs',[]) else 'inline-svg'
             name=kind+'-'+sha(E.tostring(clean(copy.deepcopy(e))))[:10]
-            add(e,name,kind,provenance,index,s)
+            add(e,name,kind,provenance,local_index,s)
         except Exception as ex:parse_errors.append(str(ex))
 # Split every symbol in successfully downloaded original SVG sprite files.
 for o in originals.values():
-    if o['contentType']!='image/svg+xml':continue
+    if o['contentType'].split(';')[0]!='image/svg+xml':continue
     try:e=E.parse(OUT/o['file']).getroot()
     except Exception:continue
     index={n.get('id'):n for n in e.iter() if n.get('id')}
     syms=[n for n in e.iter() if local(n.tag)=='symbol']
     o['symbolCount']=len(syms)
+    if not syms:add(e,pathlib.Path(o['file']).stem,'original-svg',{'assetUrl':o['urls'][0],'originalFile':o['file']},index,E.tostring(e,encoding='unicode'))
     for n in syms:
         source_symbols.append(n.get('id'))
         add(n,n.get('id','symbol'),'original-sprite-symbol',{'assetUrl':o['urls'][0].split('#')[0],'originalFile':o['file'],'symbolId':n.get('id'),'usage':'present in downloaded sprite; on-screen use not assumed'},index,E.tostring(n,encoding='unicode'))
-M={'date':'2026-10-15','timezone':'Africa/Kigali','entryUrl':captures[0]['dom']['url'],'assets':list(assets.values()),'originalFiles':list(originals.values()),'parseErrors':parse_errors,'deduplication':'SHA-256 of normalized standalone SVG; strip framework attributes and presentation classes; retain geometry/viewBox/colors/IDs needed by defs. Exact byte deduplication for downloaded originals. Not perceptual equivalence.'}
+M={'name':run_name,'date':run_date,'timezone':run_timezone,'run':config,'entryUrl':config.get('entryUrl',captures[0]['dom']['url']),'assets':list(assets.values()),'originalFiles':list(originals.values()),'parseErrors':parse_errors,'deduplication':'SHA-256 of normalized standalone SVG; strip framework attributes and presentation classes; retain geometry/viewBox/colors/IDs needed by defs. Exact byte deduplication for downloaded originals. Not perceptual equivalence.'}
 (OUT/'manifest.json').write_text(json.dumps(M,indent=2))
 with (OUT/'manifest.csv').open('w') as f:
     w=csv.writer(f);w.writerow(['file','name','kinds','sha256','source_count','unresolved_references'])
@@ -126,10 +157,10 @@ with (OUT/'manifest.csv').open('w') as f:
 (OUT/'download-failures.json').write_text(json.dumps(list(failures.values()),indent=2))
 coverage=[]
 for i,c in enumerate(captures):
-    status='loading shell only' if i in [7,8,9,10] else 'rendered state captured'
+    status=c.get('observation',{}).get('status','DOM captured; page completeness not assessed')
     statepath=DATA/f'state-{i}.txt'
     if statepath.exists() and ('image Loading...' in statepath.read_text() or 'v4-loader' in statepath.read_text()):status='partial/loading at capture; see limitations'
-    coverage.append({'capture':i,'state':c['label'] if i!=31 else 'List breadcrumb menu','url':c['dom']['url'],'status':status,'inlineSvgCount':len(c['dom']['svgs']),'domSymbolCount':len(c['dom']['symbols'])})
+    coverage.append({'capture':i,'state':c['label'],'url':c['dom']['url'],'status':status,'inlineSvgCount':len(c['dom']['svgs']),'domSymbolCount':len(c['dom']['symbols']),'rootCount':c['dom'].get('rootCount'),'inaccessibleFrames':c['dom'].get('inaccessibleFrames'),'notes':c.get('observation',{}).get('notes','')})
 (OUT/'coverage.json').write_text(json.dumps(coverage,indent=2))
 stats={'standaloneSvgs':len(assets),'originalSpriteSymbols':len(source_symbols),'pickerPictograms':sum('picker-pictogram' in a['kinds'] for a in assets.values()),'domSymbols':sum('dom-symbol' in a['kinds'] for a in assets.values()),'originalFiles':len(originals),'captures':len(captures),'uniqueUrls':len(set(c['dom']['url'] for c in captures)),'unresolvedSvgReferences':sum(bool(a['unresolvedReferences']) for a in assets.values()),'parseErrors':len(parse_errors)}
 (OUT/'summary.json').write_text(json.dumps(stats,indent=2))
@@ -137,6 +168,7 @@ cards=[]
 for a in sorted(assets.values(),key=lambda a:a['name']):
     if a['unresolvedReferences']:continue
     cards.append('<a class="card" download href="'+a['file']+'" data-name="'+html.escape(a['name'].lower()+' '+' '.join(a['kinds']),quote=True)+'"><img loading="lazy" src="'+a['file']+'"><span>'+html.escape(a['name'])+'</span><small>'+html.escape(', '.join(a['kinds']))+'</small></a>')
-gallery='''<!doctype html><html><meta charset="utf-8"><title>ClickUp extracted icons</title><style>body{font:15px system-ui;margin:32px;background:#f5f5fa;color:#252139}h1{margin-bottom:8px}input{width:min(600px,90%);padding:14px;border:1px solid #ccc;border-radius:8px;margin:20px 0}main{display:grid;grid-template-columns:repeat(auto-fill,minmax(155px,1fr));gap:12px}.card{background:white;border:1px solid #e4e2ed;padding:18px;display:flex;flex-direction:column;align-items:center;gap:16px;text-decoration:none;color:inherit;border-radius:10px;overflow:hidden}.card img{width:46px;height:46px}.card span{font-size:11px;overflow-wrap:anywhere;text-align:center}.card small{font-size:10px;color:#777}.card:hover{border-color:#7659df}header{position:sticky;top:0;background:#f5f5fa;z-index:1}p{max-width:900px}</style><header><h1>ClickUp icons & pictograms</h1><p>ACTUAL EXTRACTION · 15 October 2026 · '''+str(len(assets))+''' standalone SVGs. Click an icon to download. Originals and provenance are in the package. Sprite presence does not imply verified screen usage.</p><input id="q" placeholder="Search icon names or source type…"><span id="count"></span></header><main>'''+''.join(cards)+'''</main><script>q.oninput=()=>{let n=0;document.querySelectorAll('.card').forEach(e=>{e.hidden=!e.dataset.name.includes(q.value.toLowerCase());e.style.display=e.hidden?'none':'flex';if(!e.hidden)n++});count.textContent=n+' matches'}</script></html>'''
+gallery='''<!doctype html><html><meta charset="utf-8"><title>Extracted web assets</title><style>body{font:15px system-ui;margin:32px;background:#f5f5fa;color:#252139}h1{margin-bottom:8px}input{width:min(600px,90%);padding:14px;border:1px solid #ccc;border-radius:8px;margin:20px 0}main{display:grid;grid-template-columns:repeat(auto-fill,minmax(155px,1fr));gap:12px}.card{background:white;border:1px solid #e4e2ed;padding:18px;display:flex;flex-direction:column;align-items:center;gap:16px;text-decoration:none;color:inherit;border-radius:10px;overflow:hidden}.card img{width:46px;height:46px}.card span{font-size:11px;overflow-wrap:anywhere;text-align:center}.card small{font-size:10px;color:#777}.card:hover{border-color:#7659df}header{position:sticky;top:0;background:#f5f5fa;z-index:1}p{max-width:900px}</style><header><h1>RUN_NAME</h1><p>ACTUAL EXTRACTION · RUN_DATE · '''+str(len(assets))+''' standalone SVGs. Click an icon to download. Originals and provenance are in the package. Sprite presence does not imply verified screen usage.</p><input id="q" placeholder="Search icon names or source type…"><span id="count"></span></header><main>'''+''.join(cards)+'''</main><script>q.oninput=()=>{let n=0;document.querySelectorAll('.card').forEach(e=>{e.hidden=!e.dataset.name.includes(q.value.toLowerCase());e.style.display=e.hidden?'none':'flex';if(!e.hidden)n++});count.textContent=n+' matches'}</script></html>'''
+gallery=gallery.replace('RUN_NAME',html.escape(run_name)).replace('RUN_DATE',html.escape(run_date))
 (OUT/'gallery.html').write_text(gallery)
 print(json.dumps(stats,indent=2))

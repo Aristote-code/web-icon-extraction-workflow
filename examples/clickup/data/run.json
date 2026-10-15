@@ -1,0 +1,18 @@
+{
+  "name": "ClickUp example extraction",
+  "date": "2026-10-15",
+  "timezone": "Africa/Kigali",
+  "entryUrl": "https://app.clickup.com/9014555051/inbox?tab=primary",
+  "scope": {
+    "origin": "https://app.clickup.com",
+    "pathPrefix": "/9014555051/"
+  },
+  "limitations": [
+    "Not every accessible route and UI state was exhausted.",
+    "Loading, onboarding and disabled controls limited some states.",
+    "Creation flows, integrations, themes and responsive variants were not exhausted."
+  ],
+  "notes": [
+    "This is a historical example; original archived outputs predate the universal exporter."
+  ]
+}
