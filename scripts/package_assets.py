@@ -6,7 +6,7 @@ parser.add_argument('--output',type=pathlib.Path,required=True)
 args=parser.parse_args()
 DATA=args.input.resolve();OUT=args.output.resolve()
 if OUT==DATA or DATA.is_relative_to(OUT):raise SystemExit('Output must not contain input data')
-for d in ['svg','originals','raw-symbols','raw-inline']:
+for d in ['svg','incomplete-svg','originals','raw-symbols','raw-inline']:
     if (OUT/d).exists():shutil.rmtree(OUT/d)
 for d in ['svg','originals','raw-symbols','raw-inline','evidence']: (OUT/d).mkdir(parents=True,exist_ok=True)
 NS='http://www.w3.org/2000/svg'; XL='http://www.w3.org/1999/xlink'
@@ -50,7 +50,7 @@ def standalone(e,index):
     if not e.get('viewBox'):e.set('viewBox','0 0 24 24')
     internal={n.get('id') for n in e.iter() if n.get('id')}; needed=refs(e)-internal; added=set(); defs=E.Element('{'+NS+'}defs')
     while needed:
-        id=needed.pop()
+        id=min(needed);needed.remove(id)
         if id in added:continue
         if id in index:
             node=copy.deepcopy(index[id]);defs.append(node);added.add(id);needed|=refs(node)-internal-added

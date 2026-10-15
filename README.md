@@ -33,9 +33,12 @@ python -m pip install -r requirements.txt
 python scripts/package_assets.py --input data/clickup --output build/clickup-assets
 python scripts/finalize_clickup_case_study.py --input data/clickup --output build/clickup-assets
 python scripts/verify_package.py build/clickup-assets
+python -m unittest discover -s tests
 ```
 
-The first command normalizes captures and exports symbols. The second performs rendering checks, separates incomplete SVGs, generates the ClickUp coverage report and creates `build/clickup-icons-and-pictograms.zip`. Run packaging before finalization on every rebuild. The case-study finalizer includes observations from this recorded run; **do not use its narrative as evidence for a new run**. See [the workflow](docs/WORKFLOW.md) to collect and assess a new application.
+The packaging command normalizes captures and exports symbols. The finalizer performs rendering checks, separates incomplete SVGs, generates the ClickUp coverage report and creates `build/clickup-icons-and-pictograms.zip`. Run packaging before finalization on every rebuild. The case-study finalizer includes observations from this recorded run; **do not use its narrative as evidence for a new run**. See [the workflow](docs/WORKFLOW.md) to collect and assess a new application.
+
+The repository sorts reconstructed definitions deterministically. Rebuilt files can have different byte hashes from the archived original run when only definition order changed; the regression check verifies stable hashes across Python hash seeds.
 
 ## Repository contents
 
